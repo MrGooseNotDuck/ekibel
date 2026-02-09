@@ -494,6 +494,28 @@ button {
     transform: translateY(-2px);
 }
 
+/* Queue - moje miejsce */
+.queue-item.me {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 148, 103, 0.2)) !important;
+    border: 1px solid rgba(16, 185, 129, 0.4) !important;
+}
+
+/* Info message zamiast przycisku */
+.info-msg {
+    text-align: center;
+    padding: 14px;
+    background: var(--glass);
+    border-radius: 12px;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+/* Karta gdy jestem w toalecie */
+.toilet-card.my-toilet {
+    border: 2px solid var(--success);
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+}
+
 /* ===== MUSIC PLAYER ===== */
 .music-player {
     position: fixed;

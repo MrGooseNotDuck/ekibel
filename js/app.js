@@ -1,6 +1,5 @@
 /**
- * 🚽 EKIBEL - Live Edition
- * Auto-refresh co 2 sekundy
+ * 🚽 EKIBEL - Live Edition z kontrolą uprawnień
  */
 
 let toilets = {};
@@ -104,19 +103,64 @@ function updateStats() {
     document.getElementById('stat-queue').textContent = queue;
 }
 
-// ===== ACTIONS =====
+// ===== ACTIONS (z kontrolą uprawnień) =====
 function quickAdd(id) {
     if (!currentUser) {
         showToast('❌ Najpierw wybierz swoje imię!');
         return;
     }
+
+    // Sprawdź czy już jesteś w kolejce
+    const data = toilets[id];
+    if (data && data.queue.includes(currentUser)) {
+        showToast('⚠️ Już jesteś w tej kolejce!');
+        return;
+    }
+
+    // Sprawdź czy jesteś już w jakiejś toalecie
+    for (const t of Object.values(toilets)) {
+        if (t.occupiedBy === currentUser) {
+            showToast('⚠️ Najpierw wyjdź z toalety!');
+            return;
+        }
+    }
+
     api('addToQueue', { id, name: currentUser });
     showToast(`✅ Dodano do kolejki`);
 }
 
-function removeFromQueue(id, index) { api('removeFromQueue', { id, index }); }
-function enterToilet(id) { api('enter', { id }); showToast('🚪 Wchodzisz...'); }
-function leaveToilet(id) { api('leave', { id }); showToast('👋 Do zobaczenia!'); }
+function removeFromQueue(id, index) {
+    // Tylko siebie można usunąć
+    const data = toilets[id];
+    if (data && data.queue[index] === currentUser) {
+        api('removeFromQueue', { id, index });
+    } else {
+        showToast('❌ Możesz usunąć tylko siebie!');
+    }
+}
+
+function enterToilet(id) {
+    const data = toilets[id];
+    // Tylko pierwsza osoba w kolejce może wejść
+    if (data && data.queue[0] === currentUser) {
+        api('enter', { id });
+        showToast('🚪 Wchodzisz...');
+    } else {
+        showToast('❌ To nie Twoja kolej!');
+    }
+}
+
+function leaveToilet(id) {
+    const data = toilets[id];
+    // Tylko osoba w toalecie może wyjść
+    if (data && data.occupiedBy === currentUser) {
+        api('leave', { id });
+        showToast('👋 Do zobaczenia!');
+    } else {
+        showToast('❌ Nie jesteś w tej toalecie!');
+    }
+}
+
 function toggleWater(id) { api('toggleWater', { id }); }
 
 function addReview(id) {
@@ -187,29 +231,45 @@ function renderAll() {
 
     for (const [id, data] of Object.entries(toilets)) {
         const isOccupied = data.occupiedBy !== null;
+        const isMe = data.occupiedBy === currentUser;
+        const imInQueue = data.queue.includes(currentUser);
+        const imFirst = data.queue[0] === currentUser;
 
+        // Kolejka - przycisk X tylko przy swoim imieniu
         let queueHtml = data.queue.length === 0
             ? '<li class="empty-msg">Kolejka pusta</li>'
             : '';
         data.queue.forEach((p, i) => {
             const isFirst = i === 0;
-            queueHtml += `<li class="queue-item${isFirst ? ' first' : ''}">
-                <span>${isFirst ? '👑 ' : ''}${i + 1}. ${escapeHtml(p)}</span>
-                <button class="btn-del" onclick="removeFromQueue('${id}', ${i})">✕</button>
+            const canRemove = p === currentUser;
+            queueHtml += `<li class="queue-item${isFirst ? ' first' : ''}${p === currentUser ? ' me' : ''}">
+                <span>${isFirst ? '👑 ' : ''}${i + 1}. ${escapeHtml(p)}${p === currentUser ? ' (Ty)' : ''}</span>
+                ${canRemove ? `<button class="btn-del" onclick="removeFromQueue('${id}', ${i})">✕</button>` : ''}
             </li>`;
         });
 
+        // Główny przycisk
         let mainBtn = '';
-        if (isOccupied) {
+        if (isOccupied && isMe) {
+            // Jestem w toalecie - mogę wyjść
             mainBtn = `<button class="btn-main btn-leave" onclick="leaveToilet('${id}')">🚪 Wychodzę</button>`;
-        } else if (data.queue.length > 0) {
-            mainBtn = `<button class="btn-main btn-enter" onclick="enterToilet('${id}')">✨ Wchodzę — ${escapeHtml(data.queue[0])}</button>`;
+        } else if (isOccupied) {
+            // Ktoś inny jest w toalecie
+            mainBtn = `<div class="info-msg">🔒 Zajęte przez ${escapeHtml(data.occupiedBy)}</div>`;
+        } else if (imFirst) {
+            // Jestem pierwszy w kolejce - mogę wejść
+            mainBtn = `<button class="btn-main btn-enter" onclick="enterToilet('${id}')">✨ Wchodzę</button>`;
+        } else if (imInQueue) {
+            // Jestem w kolejce, ale nie pierwszy
+            const myPos = data.queue.indexOf(currentUser) + 1;
+            mainBtn = `<div class="info-msg">⏳ Jesteś ${myPos}. w kolejce</div>`;
         } else {
+            // Nie jestem w kolejce - mogę się dopisać
             mainBtn = `<button class="btn-main btn-quick" onclick="quickAdd('${id}')">⚡ Dopisz mnie</button>`;
         }
 
         const cardHtml = `
-        <div class="toilet-card">
+        <div class="toilet-card${isMe ? ' my-toilet' : ''}">
             <div class="card-header"><span>${data.name}</span></div>
             <div class="card-body">
                 <div class="status-box ${isOccupied ? 'status-occupied' : 'status-free'}">
@@ -222,13 +282,13 @@ function renderAll() {
                     </div>
                     <div>
                         ${isOccupied
-                ? `👤 <b>${escapeHtml(data.occupiedBy)}</b> <span class="timer-display" id="timer-${id}">0:00</span>`
+                ? `👤 <b>${escapeHtml(data.occupiedBy)}</b>${isMe ? ' (Ty)' : ''} <span class="timer-display" id="timer-${id}">0:00</span>`
                 : '<span class="muted">Pusto</span>'}
                     </div>
                 </div>
 
                 <div class="queue-section">
-                    <div class="section-title">Kolejka</div>
+                    <div class="section-title">Kolejka (${data.queue.length})</div>
                     <ul class="queue-list">${queueHtml}</ul>
                 </div>
 
@@ -267,7 +327,7 @@ function renderReservations(reservations, id) {
     return reservations.map((r, i) => `
         <li class="mini-item">
             <span>🕐 <b>${r.time}</b> — ${escapeHtml(r.name)}</span>
-            <button class="btn-del" onclick="removeReservation('${id}', ${i})">✕</button>
+            ${r.name === currentUser ? `<button class="btn-del" onclick="removeReservation('${id}', ${i})">✕</button>` : ''}
         </li>
     `).join('');
 }
@@ -275,10 +335,7 @@ function renderReservations(reservations, id) {
 function renderReviews(reviews, id) {
     if (!reviews || reviews.length === 0) return '<li class="empty-msg">Brak</li>';
     return reviews.map((r, i) => `
-        <li class="mini-item">
-            <span>"${escapeHtml(r)}"</span>
-            <button class="btn-del" onclick="removeReview('${id}', ${i})">✕</button>
-        </li>
+        <li class="mini-item"><span>"${escapeHtml(r)}"</span></li>
     `).join('');
 }
 
@@ -292,9 +349,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initUserSelection();
     api('getAll');
     startGlobalTimer();
-
-    // 🔴 LIVE MODE - odświeżanie co 2 sekundy
     setInterval(() => api('getAll'), 2000);
-
     initMusicPlayer();
 });
