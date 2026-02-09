@@ -1,65 +1,90 @@
 /**
- * 🚽 EKIBEL - Z Service Worker i Mobile Push
+ * 🚽 EKIBEL - Z przyciskiem powiadomień
  */
 
 let toilets = {};
 let currentUser = null;
 let previousState = null;
 let swRegistration = null;
+let notificationsEnabled = false;
 
-// ===== SERVICE WORKER & NOTIFICATIONS =====
+// ===== SERVICE WORKER =====
 async function initServiceWorker() {
     if ('serviceWorker' in navigator) {
         try {
             swRegistration = await navigator.serviceWorker.register('/sw.js');
-            console.log('✅ Service Worker zarejestrowany');
-
-            // Czekaj na aktywację
-            if (swRegistration.installing) {
-                await new Promise(resolve => {
-                    swRegistration.installing.addEventListener('statechange', function () {
-                        if (this.state === 'activated') resolve();
-                    });
-                });
-            }
-
+            console.log('✅ Service Worker OK');
             return true;
         } catch (error) {
-            console.error('❌ Service Worker błąd:', error);
+            console.error('❌ SW błąd:', error);
             return false;
         }
     }
     return false;
 }
 
-async function initNotifications() {
+// ===== NOTIFICATIONS =====
+async function requestNotificationPermission() {
     if (!('Notification' in window)) {
-        console.log('Brak wsparcia dla powiadomień');
-        showToast('⚠️ Twoja przeglądarka nie wspiera powiadomień');
+        showToast('❌ Przeglądarka nie wspiera powiadomień');
         return false;
     }
 
-    // iOS Safari detection
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-
-    if (isIOS && !isStandalone) {
-        showToast('📱 Dodaj do ekranu głównego dla powiadomień!');
+    if (Notification.permission === 'granted') {
+        return true;
     }
 
-    if (Notification.permission === 'default') {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
+    if (Notification.permission === 'denied') {
+        showToast('⚠️ Powiadomienia zablokowane. Włącz w ustawieniach przeglądarki.');
+        return false;
+    }
+
+    // Poproś o uprawnienia
+    const permission = await Notification.requestPermission();
+    return permission === 'granted';
+}
+
+async function toggleNotifications() {
+    if (notificationsEnabled) {
+        // Wyłącz
+        notificationsEnabled = false;
+        localStorage.setItem('ekibel_notifications', 'false');
+        showToast('🔕 Powiadomienia wyłączone');
+    } else {
+        // Włącz - najpierw poproś o uprawnienia
+        const granted = await requestNotificationPermission();
+        if (granted) {
+            notificationsEnabled = true;
+            localStorage.setItem('ekibel_notifications', 'true');
             showToast('🔔 Powiadomienia włączone!');
-        }
-        return permission === 'granted';
-    }
 
-    return Notification.permission === 'granted';
+            // Testowe powiadomienie
+            sendNotification('✅ Powiadomienia aktywne!', 'Otrzymasz powiadomienie gdy nadejdzie Twoja kolej.', '🔔');
+        }
+    }
+    updateNotificationButton();
+}
+
+function updateNotificationButton() {
+    const btn = document.getElementById('notif-btn');
+    if (btn) {
+        if (notificationsEnabled && Notification.permission === 'granted') {
+            btn.textContent = '🔔';
+            btn.classList.add('active');
+            btn.title = 'Powiadomienia włączone';
+        } else {
+            btn.textContent = '🔕';
+            btn.classList.remove('active');
+            btn.title = 'Włącz powiadomienia';
+        }
+    }
 }
 
 function sendNotification(title, body, icon = '🚽') {
-    // Próbuj przez Service Worker (działa na mobile)
+    if (!notificationsEnabled) return;
+    if (Notification.permission !== 'granted') return;
+
+    // Przez Service Worker (mobile)
     if (swRegistration && swRegistration.active) {
         swRegistration.active.postMessage({
             type: 'SHOW_NOTIFICATION',
@@ -70,32 +95,25 @@ function sendNotification(title, body, icon = '🚽') {
         return;
     }
 
-    // Fallback - zwykłe powiadomienie (desktop)
-    if (Notification.permission === 'granted') {
-        try {
-            new Notification(title, {
-                body: body,
-                icon: `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">${icon}</text></svg>`,
-                vibrate: [200, 100, 200],
-                tag: 'ekibel'
+    // Fallback (desktop)
+    try {
+        new Notification(title, {
+            body: body,
+            icon: `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">${icon}</text></svg>`,
+            vibrate: [200, 100, 200],
+            tag: 'ekibel-' + Date.now()
+        });
+    } catch (e) {
+        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.showNotification(title, { body, vibrate: [200, 100, 200], tag: 'ekibel' });
             });
-        } catch (e) {
-            // Na mobile może nie działać - spróbuj przez registration
-            if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-                navigator.serviceWorker.ready.then(reg => {
-                    reg.showNotification(title, {
-                        body: body,
-                        vibrate: [200, 100, 200],
-                        tag: 'ekibel'
-                    });
-                });
-            }
         }
     }
 }
 
 function checkForChanges(newData) {
-    if (!currentUser || !previousState) return;
+    if (!currentUser || !previousState || !notificationsEnabled) return;
 
     for (const [id, data] of Object.entries(newData)) {
         const prev = previousState[id];
@@ -153,23 +171,18 @@ function initUserSelection() {
     searchInput.focus();
 }
 
-async function selectUser(name) {
+function selectUser(name) {
     currentUser = name;
     localStorage.setItem('ekibel_user', name);
     document.getElementById('user-modal').style.display = 'none';
     updateCurrentUserDisplay();
-
-    // Inicjuj powiadomienia po wyborze użytkownika
-    await initNotifications();
-
     showToast(`👋 Cześć, ${name}!`);
 }
 
 function updateCurrentUserDisplay() {
     const el = document.getElementById('current-user');
     if (el && currentUser) {
-        const notifStatus = Notification.permission === 'granted' ? '🔔' : '🔕';
-        el.innerHTML = `<span onclick="changeUser()" style="cursor:pointer">👤 ${escapeHtml(currentUser)} ${notifStatus} <small style="opacity:0.6">(zmień)</small></span>`;
+        el.innerHTML = `<span onclick="changeUser()" style="cursor:pointer">👤 ${escapeHtml(currentUser)} <small style="opacity:0.6">(zmień)</small></span>`;
     }
 }
 
@@ -389,23 +402,18 @@ function escapeHtml(text) {
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', async () => {
-    // Najpierw Service Worker
     await initServiceWorker();
+
+    // Sprawdź zapisany stan powiadomień
+    notificationsEnabled = localStorage.getItem('ekibel_notifications') === 'true'
+        && Notification.permission === 'granted';
+    updateNotificationButton();
 
     initUserSelection();
 
-    // Pobierz dane
     await api('getAll');
     previousState = JSON.parse(JSON.stringify(toilets));
 
-    // Auto-refresh
     setInterval(() => api('getAll'), 2000);
-
     initMusicPlayer();
-
-    // Jeśli użytkownik już wybrany, inicjuj powiadomienia
-    if (currentUser) {
-        await initNotifications();
-        updateCurrentUserDisplay();
-    }
 });
