@@ -111,8 +111,65 @@ class Toilet
     public static function leave(string $toiletId): bool
     {
         $db = getDB();
+
+        // Pobierz nazwę toalety
+        $stmt = $db->prepare("SELECT name FROM toilets WHERE toilet_id = ?");
+        $stmt->execute([$toiletId]);
+        $toilet = $stmt->fetch();
+
+        // Zwolnij toaletę
         $stmt = $db->prepare("UPDATE toilets SET occupied_by = NULL WHERE toilet_id = ?");
-        return $stmt->execute([$toiletId]);
+        $result = $stmt->execute([$toiletId]);
+
+        // Powiadom pierwszą osobę w kolejce
+        if ($result && $toilet) {
+            self::notifyFirstInQueue($toiletId, $toilet['name']);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Wysyła powiadomienie do pierwszej osoby w kolejce gdy toaleta jest wolna
+     */
+    private static function notifyFirstInQueue(string $toiletId, string $toiletName): void
+    {
+        $db = getDB();
+
+        // Sprawdź czy toaleta jest wolna
+        $stmt = $db->prepare("SELECT occupied_by FROM toilets WHERE toilet_id = ?");
+        $stmt->execute([$toiletId]);
+        $toilet = $stmt->fetch();
+
+        if ($toilet && $toilet['occupied_by']) {
+            return; // Toaleta zajęta, nie powiadamiaj
+        }
+
+        // Pobierz pierwszą osobę w kolejce
+        $stmt = $db->prepare("SELECT person_name FROM queue WHERE toilet_id = ? ORDER BY position LIMIT 1");
+        $stmt->execute([$toiletId]);
+        $first = $stmt->fetch();
+
+        if ($first) {
+            // Utwórz tabelę jeśli nie istnieje
+            $db->exec("CREATE TABLE IF NOT EXISTS pending_notifications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_name VARCHAR(100) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                body TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                sent TINYINT(1) DEFAULT 0,
+                INDEX idx_user (user_name)
+            )");
+
+            // Dodaj powiadomienie
+            $stmt = $db->prepare("INSERT INTO pending_notifications (user_name, title, body) VALUES (?, ?, ?)");
+            $stmt->execute([
+                $first['person_name'],
+                '🚀 TOALETA WOLNA!',
+                $toiletName . ' - Wchodź teraz!'
+            ]);
+        }
     }
 
     public static function toggleWater(string $toiletId): bool

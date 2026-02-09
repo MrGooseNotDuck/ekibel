@@ -138,27 +138,35 @@ function updateNotificationButton() {
 function sendNotification(title, body, type = 'info') {
     if (!notificationsEnabled) return;
 
-    // Najpierw próbuj natywne powiadomienia
+    // Zawsze graj dźwięk i wibruj
+    playAlertSound();
+    vibrate();
+
+    // Próbuj natywne powiadomienie przez Service Worker
+    if (swRegistration && swRegistration.active) {
+        swRegistration.active.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title: title,
+            body: body,
+            icon: '🚽'
+        });
+    }
+
+    // Próbuj też przez Notification API bezpośrednio
     if ('Notification' in window && Notification.permission === 'granted') {
         try {
-            if (swRegistration && swRegistration.active) {
-                swRegistration.active.postMessage({
-                    type: 'SHOW_NOTIFICATION',
-                    title: title,
-                    body: body
-                });
-            } else {
-                new Notification(title, { body, vibrate: [200, 100, 200] });
-            }
-            // Również pokaż in-app dla pewności
-            showInAppNotification(title, body, type);
-            return;
+            new Notification(title, {
+                body: body,
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚽</text></svg>',
+                tag: 'ekibel-' + Date.now(),
+                requireInteraction: true
+            });
         } catch (e) {
-            // Fallback
+            // Ignore - mobile może nie wspierać
         }
     }
 
-    // Fallback - powiadomienia w aplikacji
+    // Zawsze pokaż też baner w aplikacji
     showInAppNotification(title, body, type);
 }
 
