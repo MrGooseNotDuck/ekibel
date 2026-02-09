@@ -1,6 +1,6 @@
 /**
- * 🚽 EKIBEL - Aplikacja frontendowa
- * Wersja zoptymalizowana z wyborem użytkownika
+ * 🚽 EKIBEL - Live Edition
+ * Auto-refresh co 2 sekundy
  */
 
 let toilets = {};
@@ -12,7 +12,6 @@ function initUserSelection() {
     const userList = document.getElementById('user-list');
     const searchInput = document.getElementById('user-search-input');
 
-    // Check if user already selected
     const saved = localStorage.getItem('ekibel_user');
     if (saved) {
         currentUser = saved;
@@ -21,27 +20,19 @@ function initUserSelection() {
         return;
     }
 
-    // Show modal
     modal.style.display = 'flex';
 
-    // Render user list
     function renderUsers(filter = '') {
         const filtered = EMPLOYEES.filter(name =>
             name.toLowerCase().includes(filter.toLowerCase())
         );
-
         userList.innerHTML = filtered.map(name => `
             <button class="user-btn" onclick="selectUser('${escapeHtml(name)}')">${name}</button>
         `).join('');
     }
 
     renderUsers();
-
-    // Search functionality
-    searchInput.addEventListener('input', (e) => {
-        renderUsers(e.target.value);
-    });
-
+    searchInput.addEventListener('input', (e) => renderUsers(e.target.value));
     searchInput.focus();
 }
 
@@ -65,17 +56,8 @@ function changeUser() {
     location.reload();
 }
 
-// ===== API CALLS (Optimized) =====
-let apiCache = null;
-let lastFetch = 0;
-const CACHE_TIME = 2000; // 2 seconds cache
-
-async function api(action, data = {}, forceRefresh = false) {
-    // Use cache for getAll if recent
-    if (action === 'getAll' && !forceRefresh && apiCache && (Date.now() - lastFetch < CACHE_TIME)) {
-        return { success: true, data: apiCache };
-    }
-
+// ===== API =====
+async function api(action, data = {}) {
     const formData = new FormData();
     formData.append('action', action);
     for (const [key, value] of Object.entries(data)) {
@@ -83,26 +65,21 @@ async function api(action, data = {}, forceRefresh = false) {
     }
 
     try {
-        const response = await fetch('api/toilets.php', {
-            method: 'POST',
-            body: formData
-        });
+        const response = await fetch('api/toilets.php', { method: 'POST', body: formData });
         const result = await response.json();
         if (result.success && result.data) {
             toilets = result.data;
-            apiCache = result.data;
-            lastFetch = Date.now();
             renderAll();
             updateStats();
         }
         return result;
     } catch (error) {
         console.error('API Error:', error);
-        return { success: false, message: error.message };
+        return { success: false };
     }
 }
 
-// ===== TOAST (Simple) =====
+// ===== TOAST =====
 function showToast(message) {
     const existing = document.querySelector('.toast');
     if (existing) existing.remove();
@@ -111,20 +88,17 @@ function showToast(message) {
     toast.className = 'toast';
     toast.textContent = message;
     document.body.appendChild(toast);
-
     setTimeout(() => toast.remove(), 2500);
 }
 
-// ===== STATS UPDATE =====
+// ===== STATS =====
 function updateStats() {
     let free = 0, occupied = 0, queue = 0;
-
     for (const data of Object.values(toilets)) {
         if (data.occupiedBy) occupied++;
         else free++;
         queue += data.queue.length;
     }
-
     document.getElementById('stat-free').textContent = free;
     document.getElementById('stat-occupied').textContent = occupied;
     document.getElementById('stat-queue').textContent = queue;
@@ -136,64 +110,34 @@ function quickAdd(id) {
         showToast('❌ Najpierw wybierz swoje imię!');
         return;
     }
-    api('addToQueue', { id, name: currentUser }, true);
+    api('addToQueue', { id, name: currentUser });
     showToast(`✅ Dodano do kolejki`);
 }
 
-function addToQueue(id) {
-    const input = document.getElementById(`q-input-${id}`);
-    const name = input.value.trim();
-    if (name) {
-        api('addToQueue', { id, name }, true);
-        input.value = '';
-    }
-}
-
-function removeFromQueue(id, index) {
-    api('removeFromQueue', { id, index }, true);
-}
-
-function enterToilet(id) {
-    api('enter', { id }, true);
-    showToast('🚪 Wchodzisz...');
-}
-
-function leaveToilet(id) {
-    api('leave', { id }, true);
-    showToast('👋 Do zobaczenia!');
-}
-
-function toggleWater(id) {
-    api('toggleWater', { id }, true);
-}
+function removeFromQueue(id, index) { api('removeFromQueue', { id, index }); }
+function enterToilet(id) { api('enter', { id }); showToast('🚪 Wchodzisz...'); }
+function leaveToilet(id) { api('leave', { id }); showToast('👋 Do zobaczenia!'); }
+function toggleWater(id) { api('toggleWater', { id }); }
 
 function addReview(id) {
     const input = document.getElementById(`rev-input-${id}`);
     const review = input.value.trim();
-    if (review) {
-        api('addReview', { id, review }, true);
-        input.value = '';
-    }
+    if (review) { api('addReview', { id, review }); input.value = ''; }
 }
 
-function removeReview(id, index) {
-    api('removeReview', { id, index }, true);
-}
+function removeReview(id, index) { api('removeReview', { id, index }); }
 
 function addReservation(id) {
     const timeInput = document.getElementById(`res-time-${id}`);
     const nameInput = document.getElementById(`res-name-${id}`);
-
     if (timeInput.value && nameInput.value.trim()) {
-        api('addReservation', { id, time: timeInput.value, name: nameInput.value.trim() }, true);
+        api('addReservation', { id, time: timeInput.value, name: nameInput.value.trim() });
         timeInput.value = '';
         nameInput.value = '';
     }
 }
 
-function removeReservation(id, index) {
-    api('removeReservation', { id, index }, true);
-}
+function removeReservation(id, index) { api('removeReservation', { id, index }); }
 
 // ===== TIMER =====
 function startGlobalTimer() {
@@ -213,14 +157,13 @@ function startGlobalTimer() {
     }, 1000);
 }
 
-// ===== MUSIC PLAYER =====
+// ===== MUSIC =====
 function initMusicPlayer() {
     const btn = document.getElementById('music-btn');
     const audio = document.getElementById('relaxing-music');
     if (!btn || !audio) return;
 
     let isPlaying = false;
-
     btn.addEventListener('click', () => {
         if (isPlaying) {
             audio.pause();
@@ -234,20 +177,17 @@ function initMusicPlayer() {
         }
         isPlaying = !isPlaying;
     });
-
     audio.volume = 0.3;
 }
 
-// ===== RENDERING (Optimized) =====
+// ===== RENDERING =====
 function renderAll() {
     const app = document.getElementById('app');
-    const fragment = document.createDocumentFragment();
-    const tempDiv = document.createElement('div');
+    app.innerHTML = '';
 
     for (const [id, data] of Object.entries(toilets)) {
         const isOccupied = data.occupiedBy !== null;
 
-        // Queue HTML
         let queueHtml = data.queue.length === 0
             ? '<li class="empty-msg">Kolejka pusta</li>'
             : '';
@@ -259,14 +199,13 @@ function renderAll() {
             </li>`;
         });
 
-        // Main button
         let mainBtn = '';
         if (isOccupied) {
             mainBtn = `<button class="btn-main btn-leave" onclick="leaveToilet('${id}')">🚪 Wychodzę</button>`;
         } else if (data.queue.length > 0) {
             mainBtn = `<button class="btn-main btn-enter" onclick="enterToilet('${id}')">✨ Wchodzę — ${escapeHtml(data.queue[0])}</button>`;
         } else {
-            mainBtn = `<button class="btn-main btn-quick" onclick="quickAdd('${id}')">⚡ Szybkie dopisanie</button>`;
+            mainBtn = `<button class="btn-main btn-quick" onclick="quickAdd('${id}')">⚡ Dopisz mnie</button>`;
         }
 
         const cardHtml = `
@@ -291,10 +230,6 @@ function renderAll() {
                 <div class="queue-section">
                     <div class="section-title">Kolejka</div>
                     <ul class="queue-list">${queueHtml}</ul>
-                    <div class="mini-form">
-                        <input type="text" id="q-input-${id}" placeholder="Inne imię..." onkeypress="if(event.key==='Enter') addToQueue('${id}')">
-                        <button class="btn-add btn-small" onclick="addToQueue('${id}')">+</button>
-                    </div>
                 </div>
 
                 <div class="action-area">${mainBtn}</div>
@@ -323,17 +258,12 @@ function renderAll() {
                 </details>
             </div>
         </div>`;
-
-        tempDiv.innerHTML = cardHtml;
-        fragment.appendChild(tempDiv.firstElementChild);
+        app.insertAdjacentHTML('beforeend', cardHtml);
     }
-
-    app.innerHTML = '';
-    app.appendChild(fragment);
 }
 
 function renderReservations(reservations, id) {
-    if (reservations.length === 0) return '<li class="empty-msg">Brak</li>';
+    if (!reservations || reservations.length === 0) return '<li class="empty-msg">Brak</li>';
     return reservations.map((r, i) => `
         <li class="mini-item">
             <span>🕐 <b>${r.time}</b> — ${escapeHtml(r.name)}</span>
@@ -343,7 +273,7 @@ function renderReservations(reservations, id) {
 }
 
 function renderReviews(reviews, id) {
-    if (reviews.length === 0) return '<li class="empty-msg">Brak</li>';
+    if (!reviews || reviews.length === 0) return '<li class="empty-msg">Brak</li>';
     return reviews.map((r, i) => `
         <li class="mini-item">
             <span>"${escapeHtml(r)}"</span>
@@ -352,17 +282,19 @@ function renderReviews(reviews, id) {
     `).join('');
 }
 
-// ===== HELPERS =====
 function escapeHtml(text) {
     if (!text) return '';
     return text.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
 
-// ===== INITIALIZATION =====
+// ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
     initUserSelection();
     api('getAll');
     startGlobalTimer();
-    setInterval(() => api('getAll'), 5000);
+
+    // 🔴 LIVE MODE - odświeżanie co 2 sekundy
+    setInterval(() => api('getAll'), 2000);
+
     initMusicPlayer();
 });
