@@ -1,9 +1,96 @@
 /**
- * 🚽 EKIBEL - Uproszczona wersja
+ * 🚽 EKIBEL - Z powiadomieniami push
  */
 
 let toilets = {};
 let currentUser = null;
+let previousState = null; // Do porównywania zmian
+
+// ===== NOTIFICATIONS =====
+async function initNotifications() {
+    if (!('Notification' in window)) {
+        console.log('Przeglądarka nie wspiera powiadomień');
+        return false;
+    }
+
+    if (Notification.permission === 'granted') {
+        return true;
+    }
+
+    if (Notification.permission !== 'denied') {
+        const permission = await Notification.requestPermission();
+        return permission === 'granted';
+    }
+
+    return false;
+}
+
+function sendNotification(title, body, icon = '🚽') {
+    if (Notification.permission === 'granted') {
+        const notification = new Notification(title, {
+            body: body,
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">' + icon + '</text></svg>',
+            badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚽</text></svg>',
+            vibrate: [200, 100, 200],
+            tag: 'ekibel-notification',
+            renotify: true
+        });
+
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+
+        // Auto-close after 5s
+        setTimeout(() => notification.close(), 5000);
+    }
+}
+
+function checkForChanges(newData) {
+    if (!currentUser || !previousState) return;
+
+    for (const [id, data] of Object.entries(newData)) {
+        const prev = previousState[id];
+        if (!prev) continue;
+
+        const prevQueue = prev.queue || [];
+        const newQueue = data.queue || [];
+
+        const wasInQueue = prevQueue.includes(currentUser);
+        const isInQueue = newQueue.includes(currentUser);
+        const prevPos = prevQueue.indexOf(currentUser);
+        const newPos = newQueue.indexOf(currentUser);
+
+        // Byłem w kolejce
+        if (wasInQueue && isInQueue) {
+            // Awansowałem na pierwsze miejsce!
+            if (prevPos > 0 && newPos === 0) {
+                sendNotification(
+                    '🎉 Twoja kolej!',
+                    `${data.name} - Jesteś pierwszy w kolejce!`,
+                    '👑'
+                );
+            }
+            // Awansowałem (ale nie na pierwsze)
+            else if (newPos < prevPos && newPos > 0) {
+                sendNotification(
+                    '⬆️ Awans w kolejce!',
+                    `${data.name} - Jesteś teraz ${newPos + 1}. w kolejce`,
+                    '📊'
+                );
+            }
+        }
+
+        // Jestem pierwszy i toaleta się zwolniła!
+        if (isInQueue && newPos === 0 && prev.occupiedBy && !data.occupiedBy) {
+            sendNotification(
+                '🚀 TOALETA WOLNA!',
+                `${data.name} - Możesz wchodzić!`,
+                '🟢'
+            );
+        }
+    }
+}
 
 // ===== USER SELECTION =====
 function initUserSelection() {
@@ -16,6 +103,7 @@ function initUserSelection() {
         currentUser = saved;
         modal.style.display = 'none';
         updateCurrentUserDisplay();
+        initNotifications(); // Poproś o uprawnienia
         return;
     }
 
@@ -40,6 +128,7 @@ function selectUser(name) {
     localStorage.setItem('ekibel_user', name);
     document.getElementById('user-modal').style.display = 'none';
     updateCurrentUserDisplay();
+    initNotifications(); // Poproś o uprawnienia po wyborze
     showToast(`👋 Cześć, ${name}!`);
 }
 
@@ -67,6 +156,10 @@ async function api(action, data = {}) {
         const response = await fetch('api/toilets.php', { method: 'POST', body: formData });
         const result = await response.json();
         if (result.success && result.data) {
+            // Sprawdź zmiany przed aktualizacją
+            checkForChanges(result.data);
+
+            previousState = JSON.parse(JSON.stringify(toilets)); // Deep copy
             toilets = result.data;
             renderAll();
             updateStats();
@@ -105,7 +198,7 @@ function updateStats() {
     document.getElementById('stat-queue').textContent = queue;
 }
 
-// ===== HELPERS - sprawdzaj status użytkownika =====
+// ===== HELPERS =====
 function getMyStatus() {
     for (const [id, data] of Object.entries(toilets)) {
         if (data.occupiedBy === currentUser) return { status: 'in_toilet', toiletId: id };
@@ -211,7 +304,6 @@ function renderAll() {
         const imFirst = data.queue[0] === currentUser;
         const imInQueue = data.queue.includes(currentUser);
 
-        // Kolejka
         let queueHtml = data.queue.length === 0
             ? '<li class="empty-msg">Kolejka pusta</li>'
             : '';
@@ -224,27 +316,20 @@ function renderAll() {
             </li>`;
         });
 
-        // Główny przycisk - zależny od stanu
         let mainBtn = '';
         if (isMe) {
-            // Jestem w tej toalecie
             mainBtn = `<button class="btn-main btn-leave" onclick="leaveToilet('${id}')">🚪 Wychodzę</button>`;
         } else if (imFirst && !isOccupied) {
-            // Jestem pierwszy i toaleta wolna
             mainBtn = `<button class="btn-main btn-enter" onclick="enterToilet('${id}')">✨ Wchodzę</button>`;
         } else if (imInQueue) {
-            // Jestem w kolejce ale nie pierwszy lub zajęte
             const myPos = data.queue.indexOf(currentUser) + 1;
             mainBtn = `<div class="info-msg">⏳ Jesteś ${myPos}. w kolejce</div>`;
         } else if (myStatus.status === 'free') {
-            // Jestem wolny - mogę się dopisać
             mainBtn = `<button class="btn-main btn-quick" onclick="quickAdd('${id}')">⚡ Dopisz mnie</button>`;
         } else {
-            // Jestem gdzie indziej
-            mainBtn = `<div class="info-msg muted">Jesteś w innej kolejce/toalecie</div>`;
+            mainBtn = `<div class="info-msg muted">Jesteś w innej kolejce</div>`;
         }
 
-        // Woda
         const waterHtml = isMe
             ? `<div class="water-toggle ${data.warmWater ? 'water-hot' : 'water-cold'}" onclick="toggleWater('${id}')">
                 ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}
@@ -290,7 +375,9 @@ function escapeHtml(text) {
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
     initUserSelection();
-    api('getAll');
+    api('getAll').then(() => {
+        previousState = JSON.parse(JSON.stringify(toilets));
+    });
     setInterval(() => api('getAll'), 2000);
     initMusicPlayer();
 });
