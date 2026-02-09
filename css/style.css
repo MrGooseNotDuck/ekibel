@@ -4,6 +4,39 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* Install Prompt */
+.install-prompt {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    padding: 12px 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    z-index: 10000;
+    font-size: 0.9rem;
+}
+
+.install-prompt button {
+    background: white;
+    color: #6366f1;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.install-prompt button:last-child {
+    background: transparent;
+    color: white;
+    padding: 8px;
+}
+
 :root {
     --primary: #6366f1;
     --primary-glow: rgba(99, 102, 241, 0.3);

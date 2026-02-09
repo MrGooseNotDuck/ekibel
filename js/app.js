@@ -1,48 +1,96 @@
 /**
- * 🚽 EKIBEL - Z powiadomieniami push
+ * 🚽 EKIBEL - Z Service Worker i Mobile Push
  */
 
 let toilets = {};
 let currentUser = null;
-let previousState = null; // Do porównywania zmian
+let previousState = null;
+let swRegistration = null;
 
-// ===== NOTIFICATIONS =====
-async function initNotifications() {
-    if (!('Notification' in window)) {
-        console.log('Przeglądarka nie wspiera powiadomień');
-        return false;
+// ===== SERVICE WORKER & NOTIFICATIONS =====
+async function initServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        try {
+            swRegistration = await navigator.serviceWorker.register('/sw.js');
+            console.log('✅ Service Worker zarejestrowany');
+
+            // Czekaj na aktywację
+            if (swRegistration.installing) {
+                await new Promise(resolve => {
+                    swRegistration.installing.addEventListener('statechange', function () {
+                        if (this.state === 'activated') resolve();
+                    });
+                });
+            }
+
+            return true;
+        } catch (error) {
+            console.error('❌ Service Worker błąd:', error);
+            return false;
+        }
     }
-
-    if (Notification.permission === 'granted') {
-        return true;
-    }
-
-    if (Notification.permission !== 'denied') {
-        const permission = await Notification.requestPermission();
-        return permission === 'granted';
-    }
-
     return false;
 }
 
+async function initNotifications() {
+    if (!('Notification' in window)) {
+        console.log('Brak wsparcia dla powiadomień');
+        showToast('⚠️ Twoja przeglądarka nie wspiera powiadomień');
+        return false;
+    }
+
+    // iOS Safari detection
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+
+    if (isIOS && !isStandalone) {
+        showToast('📱 Dodaj do ekranu głównego dla powiadomień!');
+    }
+
+    if (Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            showToast('🔔 Powiadomienia włączone!');
+        }
+        return permission === 'granted';
+    }
+
+    return Notification.permission === 'granted';
+}
+
 function sendNotification(title, body, icon = '🚽') {
-    if (Notification.permission === 'granted') {
-        const notification = new Notification(title, {
+    // Próbuj przez Service Worker (działa na mobile)
+    if (swRegistration && swRegistration.active) {
+        swRegistration.active.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title: title,
             body: body,
-            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">' + icon + '</text></svg>',
-            badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚽</text></svg>',
-            vibrate: [200, 100, 200],
-            tag: 'ekibel-notification',
-            renotify: true
+            icon: icon
         });
+        return;
+    }
 
-        notification.onclick = () => {
-            window.focus();
-            notification.close();
-        };
-
-        // Auto-close after 5s
-        setTimeout(() => notification.close(), 5000);
+    // Fallback - zwykłe powiadomienie (desktop)
+    if (Notification.permission === 'granted') {
+        try {
+            new Notification(title, {
+                body: body,
+                icon: `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">${icon}</text></svg>`,
+                vibrate: [200, 100, 200],
+                tag: 'ekibel'
+            });
+        } catch (e) {
+            // Na mobile może nie działać - spróbuj przez registration
+            if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+                navigator.serviceWorker.ready.then(reg => {
+                    reg.showNotification(title, {
+                        body: body,
+                        vibrate: [200, 100, 200],
+                        tag: 'ekibel'
+                    });
+                });
+            }
+        }
     }
 }
 
@@ -61,33 +109,16 @@ function checkForChanges(newData) {
         const prevPos = prevQueue.indexOf(currentUser);
         const newPos = newQueue.indexOf(currentUser);
 
-        // Byłem w kolejce
         if (wasInQueue && isInQueue) {
-            // Awansowałem na pierwsze miejsce!
             if (prevPos > 0 && newPos === 0) {
-                sendNotification(
-                    '🎉 Twoja kolej!',
-                    `${data.name} - Jesteś pierwszy w kolejce!`,
-                    '👑'
-                );
-            }
-            // Awansowałem (ale nie na pierwsze)
-            else if (newPos < prevPos && newPos > 0) {
-                sendNotification(
-                    '⬆️ Awans w kolejce!',
-                    `${data.name} - Jesteś teraz ${newPos + 1}. w kolejce`,
-                    '📊'
-                );
+                sendNotification('🎉 Twoja kolej!', `${data.name} - Jesteś pierwszy!`, '👑');
+            } else if (newPos < prevPos && newPos > 0) {
+                sendNotification('⬆️ Awans!', `${data.name} - Pozycja ${newPos + 1}`, '📊');
             }
         }
 
-        // Jestem pierwszy i toaleta się zwolniła!
         if (isInQueue && newPos === 0 && prev.occupiedBy && !data.occupiedBy) {
-            sendNotification(
-                '🚀 TOALETA WOLNA!',
-                `${data.name} - Możesz wchodzić!`,
-                '🟢'
-            );
+            sendNotification('🚀 WOLNE!', `${data.name} - Wchodź!`, '🟢');
         }
     }
 }
@@ -103,7 +134,6 @@ function initUserSelection() {
         currentUser = saved;
         modal.style.display = 'none';
         updateCurrentUserDisplay();
-        initNotifications(); // Poproś o uprawnienia
         return;
     }
 
@@ -123,19 +153,23 @@ function initUserSelection() {
     searchInput.focus();
 }
 
-function selectUser(name) {
+async function selectUser(name) {
     currentUser = name;
     localStorage.setItem('ekibel_user', name);
     document.getElementById('user-modal').style.display = 'none';
     updateCurrentUserDisplay();
-    initNotifications(); // Poproś o uprawnienia po wyborze
+
+    // Inicjuj powiadomienia po wyborze użytkownika
+    await initNotifications();
+
     showToast(`👋 Cześć, ${name}!`);
 }
 
 function updateCurrentUserDisplay() {
     const el = document.getElementById('current-user');
     if (el && currentUser) {
-        el.innerHTML = `<span onclick="changeUser()" style="cursor:pointer">👤 ${escapeHtml(currentUser)} <small style="opacity:0.6">(zmień)</small></span>`;
+        const notifStatus = Notification.permission === 'granted' ? '🔔' : '🔕';
+        el.innerHTML = `<span onclick="changeUser()" style="cursor:pointer">👤 ${escapeHtml(currentUser)} ${notifStatus} <small style="opacity:0.6">(zmień)</small></span>`;
     }
 }
 
@@ -156,10 +190,8 @@ async function api(action, data = {}) {
         const response = await fetch('api/toilets.php', { method: 'POST', body: formData });
         const result = await response.json();
         if (result.success && result.data) {
-            // Sprawdź zmiany przed aktualizacją
             checkForChanges(result.data);
-
-            previousState = JSON.parse(JSON.stringify(toilets)); // Deep copy
+            previousState = JSON.parse(JSON.stringify(toilets));
             toilets = result.data;
             renderAll();
             updateStats();
@@ -182,7 +214,7 @@ function showToast(message) {
     toast.className = 'toast';
     toast.textContent = message;
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2500);
+    setTimeout(() => toast.remove(), 3000);
 }
 
 // ===== STATS =====
@@ -279,12 +311,8 @@ function initMusicPlayer() {
         if (isPlaying) {
             audio.pause();
             btn.textContent = '🎵';
-            btn.classList.remove('playing');
         } else {
-            audio.play().then(() => {
-                btn.textContent = '⏸️';
-                btn.classList.add('playing');
-            }).catch(() => { });
+            audio.play().then(() => btn.textContent = '⏸️').catch(() => { });
         }
         isPlaying = !isPlaying;
     });
@@ -331,35 +359,22 @@ function renderAll() {
         }
 
         const waterHtml = isMe
-            ? `<div class="water-toggle ${data.warmWater ? 'water-hot' : 'water-cold'}" onclick="toggleWater('${id}')">
-                ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}
-               </div>`
-            : `<div class="water-info ${data.warmWater ? 'water-hot' : 'water-cold'}">
-                ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}
-               </div>`;
+            ? `<div class="water-toggle ${data.warmWater ? 'water-hot' : 'water-cold'}" onclick="toggleWater('${id}')">${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}</div>`
+            : `<div class="water-info ${data.warmWater ? 'water-hot' : 'water-cold'}">${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}</div>`;
 
         const cardHtml = `
         <div class="toilet-card${isMe ? ' my-toilet' : ''}${imInQueue ? ' my-queue' : ''}">
             <div class="card-header"><span>${data.name}</span></div>
             <div class="card-body">
-                <div class="status-box ${isOccupied ? 'status-occupied' : 'status-free'}">
-                    ${isOccupied ? '🔴 ZAJĘTE' : '🟢 WOLNE'}
-                </div>
-
+                <div class="status-box ${isOccupied ? 'status-occupied' : 'status-free'}">${isOccupied ? '🔴 ZAJĘTE' : '🟢 WOLNE'}</div>
                 <div class="info-row">
                     ${waterHtml}
-                    <div>
-                        ${isOccupied
-                ? `👤 <b>${escapeHtml(data.occupiedBy)}</b>${isMe ? ' (Ty)' : ''}`
-                : '<span class="muted">Pusto</span>'}
-                    </div>
+                    <div>${isOccupied ? `👤 <b>${escapeHtml(data.occupiedBy)}</b>${isMe ? ' (Ty)' : ''}` : '<span class="muted">Pusto</span>'}</div>
                 </div>
-
                 <div class="queue-section">
                     <div class="section-title">Kolejka (${data.queue.length})</div>
                     <ul class="queue-list">${queueHtml}</ul>
                 </div>
-
                 <div class="action-area">${mainBtn}</div>
             </div>
         </div>`;
@@ -373,11 +388,24 @@ function escapeHtml(text) {
 }
 
 // ===== INIT =====
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Najpierw Service Worker
+    await initServiceWorker();
+
     initUserSelection();
-    api('getAll').then(() => {
-        previousState = JSON.parse(JSON.stringify(toilets));
-    });
+
+    // Pobierz dane
+    await api('getAll');
+    previousState = JSON.parse(JSON.stringify(toilets));
+
+    // Auto-refresh
     setInterval(() => api('getAll'), 2000);
+
     initMusicPlayer();
+
+    // Jeśli użytkownik już wybrany, inicjuj powiadomienia
+    if (currentUser) {
+        await initNotifications();
+        updateCurrentUserDisplay();
+    }
 });

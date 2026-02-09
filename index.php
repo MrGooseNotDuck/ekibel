@@ -7,15 +7,28 @@ $employeesJson = json_encode(EMPLOYEES, JSON_UNESCAPED_UNICODE);
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0f0f1a">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="EKIBEL">
     <title><?= APP_NAME ?></title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚽</text></svg>">
     <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚽</text></svg>">
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚽</text></svg>">
 </head>
 
 <body>
+    <!-- Install prompt -->
+    <div id="install-prompt" class="install-prompt" style="display:none;">
+        <span>📱 Zainstaluj aplikację dla powiadomień!</span>
+        <button onclick="installPWA()">Instaluj</button>
+        <button onclick="dismissInstall()">✕</button>
+    </div>
+
     <div id="user-modal" class="modal">
         <div class="modal-content">
             <h2>👋 Witaj!</h2>
@@ -59,8 +72,32 @@ $employeesJson = json_encode(EMPLOYEES, JSON_UNESCAPED_UNICODE);
         <source src="https://cdn.pixabay.com/audio/2022/02/23/audio_ea70ad08e3.mp3" type="audio/mpeg">
     </audio>
 
-    <script>const EMPLOYEES = <?= $employeesJson ?>;</script>
-    <script src="js/app.js" defer></script>
+    <script>
+        const EMPLOYEES = <?= $employeesJson ?>;
+        
+        // PWA Install
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            document.getElementById('install-prompt').style.display = 'flex';
+        });
+        
+        function installPWA() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(() => {
+                    deferredPrompt = null;
+                    document.getElementById('install-prompt').style.display = 'none';
+                });
+            }
+        }
+        
+        function dismissInstall() {
+            document.getElementById('install-prompt').style.display = 'none';
+        }
+    </script>
+    <script src="js/app.js"></script>
 </body>
 
 </html>
