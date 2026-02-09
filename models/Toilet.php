@@ -1,4 +1,4 @@
-<?php
+§<?php
 /**
  * Model Toilet - Uproszczony (bez rezerwacji/opinii)
  */
