@@ -527,6 +527,12 @@ button {
     box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
 }
 
+/* Karta gdy jestem w kolejce */
+.toilet-card.my-queue {
+    border: 2px solid var(--primary);
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+}
+
 /* ===== MUSIC PLAYER ===== */
 .music-player {
     position: fixed;

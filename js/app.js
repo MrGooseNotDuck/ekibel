@@ -1,5 +1,5 @@
 /**
- * 🚽 EKIBEL - Naprawiona wersja
+ * 🚽 EKIBEL - Uproszczona wersja
  */
 
 let toilets = {};
@@ -105,6 +105,16 @@ function updateStats() {
     document.getElementById('stat-queue').textContent = queue;
 }
 
+// ===== HELPERS - sprawdzaj status użytkownika =====
+function getMyStatus() {
+    for (const [id, data] of Object.entries(toilets)) {
+        if (data.occupiedBy === currentUser) return { status: 'in_toilet', toiletId: id };
+        const idx = data.queue.indexOf(currentUser);
+        if (idx >= 0) return { status: 'in_queue', toiletId: id, position: idx };
+    }
+    return { status: 'free' };
+}
+
 // ===== ACTIONS =====
 function quickAdd(id) {
     if (!currentUser) {
@@ -112,17 +122,14 @@ function quickAdd(id) {
         return;
     }
 
-    const data = toilets[id];
-    if (data && data.queue.includes(currentUser)) {
-        showToast('⚠️ Już jesteś w tej kolejce!');
+    const myStatus = getMyStatus();
+    if (myStatus.status === 'in_toilet') {
+        showToast('⚠️ Najpierw wyjdź z toalety!');
         return;
     }
-
-    for (const t of Object.values(toilets)) {
-        if (t.occupiedBy === currentUser) {
-            showToast('⚠️ Najpierw wyjdź z toalety!');
-            return;
-        }
+    if (myStatus.status === 'in_queue') {
+        showToast('⚠️ Już jesteś w kolejce!');
+        return;
     }
 
     api('addToQueue', { id, name: currentUser });
@@ -133,6 +140,7 @@ function removeFromQueue(id, index) {
     const data = toilets[id];
     if (data && data.queue[index] === currentUser) {
         api('removeFromQueue', { id, index });
+        showToast('👋 Usunięto z kolejki');
     } else {
         showToast('❌ Możesz usunąć tylko siebie!');
     }
@@ -158,7 +166,6 @@ function leaveToilet(id) {
     }
 }
 
-// Woda - tylko gdy jesteś w toalecie
 function toggleWater(id) {
     const data = toilets[id];
     if (data && data.occupiedBy === currentUser) {
@@ -166,70 +173,6 @@ function toggleWater(id) {
     } else {
         showToast('❌ Tylko osoba w toalecie może zmieniać wodę!');
     }
-}
-
-// OPINIE
-function addReview(id) {
-    const input = document.getElementById(`rev-input-${id}`);
-    const review = input.value.trim();
-    if (review) {
-        api('addReview', { id, review, author: currentUser || 'Anonim' });
-        input.value = '';
-        showToast('✅ Opinia dodana');
-    } else {
-        showToast('❌ Wpisz treść opinii!');
-    }
-}
-
-function removeReview(id, index) {
-    api('removeReview', { id, index });
-}
-
-// REZERWACJE
-function addReservation(id) {
-    const dateInput = document.getElementById(`res-date-${id}`);
-    const timeInput = document.getElementById(`res-time-${id}`);
-
-    if (!dateInput.value) {
-        showToast('❌ Wybierz datę!');
-        return;
-    }
-    if (!timeInput.value) {
-        showToast('❌ Wybierz godzinę!');
-        return;
-    }
-
-    api('addReservation', {
-        id,
-        date: dateInput.value,
-        time: timeInput.value,
-        name: currentUser || 'Anonim'
-    });
-    dateInput.value = '';
-    timeInput.value = '';
-    showToast('✅ Rezerwacja dodana');
-}
-
-function removeReservation(id, index) {
-    api('removeReservation', { id, index });
-}
-
-// ===== TIMER =====
-function startGlobalTimer() {
-    setInterval(() => {
-        for (const [id, data] of Object.entries(toilets)) {
-            if (data.occupiedBy && data.entryTime) {
-                const diff = Math.floor((Date.now() - data.entryTime) / 1000);
-                const minutes = Math.floor(diff / 60);
-                const seconds = diff % 60;
-                const el = document.getElementById(`timer-${id}`);
-                if (el) {
-                    el.innerText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-                    if (minutes >= 5) el.style.color = '#ef4444';
-                }
-            }
-        }
-    }, 1000);
 }
 
 // ===== MUSIC =====
@@ -255,27 +198,18 @@ function initMusicPlayer() {
     audio.volume = 0.3;
 }
 
-// ===== HELPERS =====
-function formatDate(dateStr) {
-    const d = new Date(dateStr);
-    const days = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb'];
-    return `${days[d.getDay()]} ${d.getDate()}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-}
-
-function getTodayDate() {
-    return new Date().toISOString().split('T')[0];
-}
-
 // ===== RENDERING =====
 function renderAll() {
     const app = document.getElementById('app');
     app.innerHTML = '';
 
+    const myStatus = getMyStatus();
+
     for (const [id, data] of Object.entries(toilets)) {
         const isOccupied = data.occupiedBy !== null;
         const isMe = data.occupiedBy === currentUser;
-        const imInQueue = data.queue.includes(currentUser);
         const imFirst = data.queue[0] === currentUser;
+        const imInQueue = data.queue.includes(currentUser);
 
         // Kolejka
         let queueHtml = data.queue.length === 0
@@ -290,32 +224,37 @@ function renderAll() {
             </li>`;
         });
 
-        // Główny przycisk
+        // Główny przycisk - zależny od stanu
         let mainBtn = '';
-        if (isOccupied && isMe) {
+        if (isMe) {
+            // Jestem w tej toalecie
             mainBtn = `<button class="btn-main btn-leave" onclick="leaveToilet('${id}')">🚪 Wychodzę</button>`;
-        } else if (isOccupied) {
-            mainBtn = `<div class="info-msg">🔒 Zajęte przez ${escapeHtml(data.occupiedBy)}</div>`;
-        } else if (imFirst) {
+        } else if (imFirst && !isOccupied) {
+            // Jestem pierwszy i toaleta wolna
             mainBtn = `<button class="btn-main btn-enter" onclick="enterToilet('${id}')">✨ Wchodzę</button>`;
         } else if (imInQueue) {
+            // Jestem w kolejce ale nie pierwszy lub zajęte
             const myPos = data.queue.indexOf(currentUser) + 1;
             mainBtn = `<div class="info-msg">⏳ Jesteś ${myPos}. w kolejce</div>`;
-        } else {
+        } else if (myStatus.status === 'free') {
+            // Jestem wolny - mogę się dopisać
             mainBtn = `<button class="btn-main btn-quick" onclick="quickAdd('${id}')">⚡ Dopisz mnie</button>`;
+        } else {
+            // Jestem gdzie indziej
+            mainBtn = `<div class="info-msg muted">Jesteś w innej kolejce/toalecie</div>`;
         }
 
-        // Woda - toggle tylko dla osoby w toalecie
+        // Woda
         const waterHtml = isMe
             ? `<div class="water-toggle ${data.warmWater ? 'water-hot' : 'water-cold'}" onclick="toggleWater('${id}')">
-                ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'} <small>(kliknij)</small>
+                ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}
                </div>`
             : `<div class="water-info ${data.warmWater ? 'water-hot' : 'water-cold'}">
                 ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}
                </div>`;
 
         const cardHtml = `
-        <div class="toilet-card${isMe ? ' my-toilet' : ''}">
+        <div class="toilet-card${isMe ? ' my-toilet' : ''}${imInQueue ? ' my-queue' : ''}">
             <div class="card-header"><span>${data.name}</span></div>
             <div class="card-body">
                 <div class="status-box ${isOccupied ? 'status-occupied' : 'status-free'}">
@@ -326,7 +265,7 @@ function renderAll() {
                     ${waterHtml}
                     <div>
                         ${isOccupied
-                ? `👤 <b>${escapeHtml(data.occupiedBy)}</b>${isMe ? ' (Ty)' : ''} <span class="timer-display" id="timer-${id}">0:00</span>`
+                ? `👤 <b>${escapeHtml(data.occupiedBy)}</b>${isMe ? ' (Ty)' : ''}`
                 : '<span class="muted">Pusto</span>'}
                     </div>
                 </div>
@@ -337,57 +276,10 @@ function renderAll() {
                 </div>
 
                 <div class="action-area">${mainBtn}</div>
-
-                <details>
-                    <summary>📅 Rezerwacje (${data.reservations.length})</summary>
-                    <div class="details-content">
-                        <div class="mini-form">
-                            <input type="date" id="res-date-${id}" min="${getTodayDate()}">
-                            <input type="time" id="res-time-${id}">
-                            <button class="btn-add btn-small" onclick="addReservation('${id}')">OK</button>
-                        </div>
-                        <ul class="mini-list">${renderReservations(data.reservations, id)}</ul>
-                    </div>
-                </details>
-
-                <details>
-                    <summary>⭐ Opinie (${data.reviews.length})</summary>
-                    <div class="details-content">
-                        <ul class="mini-list">${renderReviews(data.reviews, id)}</ul>
-                        <div class="mini-form">
-                            <input type="text" id="rev-input-${id}" placeholder="Zgłoś problem...">
-                            <button class="btn-add btn-small" onclick="addReview('${id}')">OK</button>
-                        </div>
-                    </div>
-                </details>
             </div>
         </div>`;
         app.insertAdjacentHTML('beforeend', cardHtml);
     }
-}
-
-function renderReservations(reservations, id) {
-    if (!reservations || reservations.length === 0) return '<li class="empty-msg">Brak rezerwacji</li>';
-    return reservations.map((r, i) => {
-        const canRemove = r.name === currentUser;
-        return `
-        <li class="mini-item${canRemove ? ' me' : ''}">
-            <span>📅 <b>${formatDate(r.date)}</b> ${r.time} — ${escapeHtml(r.name)}</span>
-            ${canRemove ? `<button class="btn-del" onclick="removeReservation('${id}', ${i})">✕</button>` : ''}
-        </li>`;
-    }).join('');
-}
-
-function renderReviews(reviews, id) {
-    if (!reviews || reviews.length === 0) return '<li class="empty-msg">Brak opinii</li>';
-    return reviews.map((r, i) => {
-        const canRemove = r.author === currentUser;
-        return `
-        <li class="mini-item${canRemove ? ' me' : ''}">
-            <span>"${escapeHtml(r.text)}" <small>— ${escapeHtml(r.author || 'Anonim')}</small></span>
-            ${canRemove ? `<button class="btn-del" onclick="removeReview('${id}', ${i})">✕</button>` : ''}
-        </li>`;
-    }).join('');
 }
 
 function escapeHtml(text) {
@@ -399,7 +291,6 @@ function escapeHtml(text) {
 document.addEventListener('DOMContentLoaded', () => {
     initUserSelection();
     api('getAll');
-    startGlobalTimer();
     setInterval(() => api('getAll'), 2000);
     initMusicPlayer();
 });
