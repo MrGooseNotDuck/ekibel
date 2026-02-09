@@ -69,10 +69,12 @@ function showInAppNotification(title, body, type = 'info') {
 async function initServiceWorker() {
     if ('serviceWorker' in navigator) {
         try {
-            swRegistration = await navigator.serviceWorker.register('/sw.js');
+            // Użyj relatywnej ścieżki zamiast absolutnej
+            swRegistration = await navigator.serviceWorker.register('sw.js');
+            console.log('SW zarejestrowany');
             return true;
         } catch (error) {
-            console.log('SW:', error);
+            console.log('SW błąd:', error);
             return false;
         }
     }

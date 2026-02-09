@@ -91,6 +91,11 @@ class Toilet
     {
         $db = getDB();
 
+        // Pobierz nazwę toalety
+        $stmt = $db->prepare("SELECT name FROM toilets WHERE toilet_id = ?");
+        $stmt->execute([$toiletId]);
+        $toilet = $stmt->fetch();
+
         $stmt = $db->prepare("SELECT id, person_name FROM queue WHERE toilet_id = ? ORDER BY position LIMIT 1");
         $stmt->execute([$toiletId]);
         $first = $stmt->fetch();
@@ -105,6 +110,12 @@ class Toilet
         $stmt->execute([$first['id']]);
 
         self::reorderQueue($toiletId);
+
+        // Powiadom nową pierwszą osobę w kolejce
+        if ($toilet) {
+            self::notifyFirstInQueue($toiletId, $toilet['name'], '🎉 Twoja kolej za chwilę!', ' - Jesteś następny!');
+        }
+
         return true;
     }
 
@@ -130,20 +141,11 @@ class Toilet
     }
 
     /**
-     * Wysyła powiadomienie do pierwszej osoby w kolejce gdy toaleta jest wolna
+     * Wysyła powiadomienie do pierwszej osoby w kolejce
      */
-    private static function notifyFirstInQueue(string $toiletId, string $toiletName): void
+    private static function notifyFirstInQueue(string $toiletId, string $toiletName, ?string $customTitle = null, ?string $customBody = null): void
     {
         $db = getDB();
-
-        // Sprawdź czy toaleta jest wolna
-        $stmt = $db->prepare("SELECT occupied_by FROM toilets WHERE toilet_id = ?");
-        $stmt->execute([$toiletId]);
-        $toilet = $stmt->fetch();
-
-        if ($toilet && $toilet['occupied_by']) {
-            return; // Toaleta zajęta, nie powiadamiaj
-        }
 
         // Pobierz pierwszą osobę w kolejce
         $stmt = $db->prepare("SELECT person_name FROM queue WHERE toilet_id = ? ORDER BY position LIMIT 1");
@@ -162,12 +164,16 @@ class Toilet
                 INDEX idx_user (user_name)
             )");
 
+            // Ustaw tytuł i treść (domyślne lub niestandardowe)
+            $title = $customTitle ?? '🚀 TOALETA WOLNA!';
+            $body = $customBody ? ($toiletName . $customBody) : ($toiletName . ' - Wchodź teraz!');
+
             // Dodaj powiadomienie
             $stmt = $db->prepare("INSERT INTO pending_notifications (user_name, title, body) VALUES (?, ?, ?)");
             $stmt->execute([
                 $first['person_name'],
-                '🚀 TOALETA WOLNA!',
-                $toiletName . ' - Wchodź teraz!'
+                $title,
+                $body
             ]);
         }
     }
