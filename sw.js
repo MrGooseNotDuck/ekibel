@@ -61,11 +61,11 @@ self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
         self.registration.showNotification(event.data.title, {
             body: event.data.body,
-            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">' + (event.data.icon || '🚽') + '</text></svg>',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚽</text></svg>',
             vibrate: [200, 100, 200],
-            tag: 'ekibel-' + Date.now(),
+            tag: 'ekibel-queue', // Stały tag - zastępuje poprzednie powiadomienia
             renotify: true,
-            requireInteraction: false
+            requireInteraction: true
         });
     }
 });

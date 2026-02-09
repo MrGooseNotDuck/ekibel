@@ -135,69 +135,51 @@ function updateNotificationButton() {
     }
 }
 
+// Unikaj duplikatów powiadomień
+let lastNotificationKey = '';
+let lastNotificationTime = 0;
+
 function sendNotification(title, body, type = 'info') {
     if (!notificationsEnabled) return;
 
-    // Zawsze graj dźwięk i wibruj
+    // Deduplicacja - nie wysyłaj tego samego powiadomienia w ciągu 10 sekund
+    const key = title + body;
+    const now = Date.now();
+    if (key === lastNotificationKey && (now - lastNotificationTime) < 10000) {
+        return; // Pomiń duplikat
+    }
+    lastNotificationKey = key;
+    lastNotificationTime = now;
+
+    // Dźwięk i wibracja
     playAlertSound();
     vibrate();
 
-    // Próbuj natywne powiadomienie przez Service Worker
+    // Tylko JEDEN kanał powiadomień - Service Worker (działa w tle)
     if (swRegistration && swRegistration.active) {
         swRegistration.active.postMessage({
             type: 'SHOW_NOTIFICATION',
             title: title,
-            body: body,
-            icon: '🚽'
+            body: body
         });
     }
-
-    // Próbuj też przez Notification API bezpośrednio
-    if ('Notification' in window && Notification.permission === 'granted') {
+    // Fallback jeśli SW nie działa
+    else if ('Notification' in window && Notification.permission === 'granted') {
         try {
             new Notification(title, {
                 body: body,
-                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚽</text></svg>',
-                tag: 'ekibel-' + Date.now(),
-                requireInteraction: true
+                tag: 'ekibel', // stały tag = zastępuje poprzednie
+                renotify: true
             });
-        } catch (e) {
-            // Ignore - mobile może nie wspierać
-        }
+        } catch (e) { }
     }
 
-    // Zawsze pokaż też baner w aplikacji
+    // Baner w aplikacji
     showInAppNotification(title, body, type);
 }
 
-function checkForChanges(newData) {
-    if (!currentUser || !previousState || !notificationsEnabled) return;
-
-    for (const [id, data] of Object.entries(newData)) {
-        const prev = previousState[id];
-        if (!prev) continue;
-
-        const prevQueue = prev.queue || [];
-        const newQueue = data.queue || [];
-
-        const wasInQueue = prevQueue.includes(currentUser);
-        const isInQueue = newQueue.includes(currentUser);
-        const prevPos = prevQueue.indexOf(currentUser);
-        const newPos = newQueue.indexOf(currentUser);
-
-        if (wasInQueue && isInQueue) {
-            if (prevPos > 0 && newPos === 0) {
-                sendNotification('🎉 Twoja kolej!', `${data.name} - Jesteś pierwszy!`, 'success');
-            } else if (newPos < prevPos && newPos > 0) {
-                sendNotification('⬆️ Awans w kolejce!', `${data.name} - Pozycja ${newPos + 1}`, 'info');
-            }
-        }
-
-        if (isInQueue && newPos === 0 && prev.occupiedBy && !data.occupiedBy) {
-            sendNotification('🚀 TOALETA WOLNA!', `${data.name} - Wchodź teraz!`, 'success');
-        }
-    }
-}
+// Usunięto checkForChanges - powiadomienia tylko przez serwer
+// żeby uniknąć duplikatów
 
 // ===== USER SELECTION =====
 function initUserSelection() {
@@ -261,7 +243,6 @@ async function api(action, data = {}) {
         const response = await fetch('api/toilets.php', { method: 'POST', body: formData });
         const result = await response.json();
         if (result.success && result.data) {
-            checkForChanges(result.data);
             previousState = JSON.parse(JSON.stringify(toilets));
             toilets = result.data;
             renderAll();
