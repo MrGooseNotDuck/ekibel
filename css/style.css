@@ -1,0 +1,268 @@
+:root {
+    --primary: #2563eb;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --warning: #ca8a04;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --text: #1e293b;
+    --border: #cbd5e1;
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 20px;
+}
+
+h1 {
+    text-align: center;
+    color: #334155;
+    margin-bottom: 30px;
+}
+
+/* Grid Layout */
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 25px;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+/* Karta toalety */
+.toilet-card {
+    background-color: var(--card);
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+}
+
+.card-header {
+    background-color: #f8fafc;
+    padding: 15px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.card-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* Status Box */
+.status-box {
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+    color: white;
+    font-weight: 800;
+    font-size: 1.4rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.status-free {
+    background-color: var(--success);
+}
+
+.status-occupied {
+    background-color: var(--danger);
+}
+
+/* Woda i Timer */
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f1f5f9;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+}
+
+.water-toggle {
+    cursor: pointer;
+    user-select: none;
+    font-weight: bold;
+}
+
+.water-hot {
+    color: var(--danger);
+}
+
+.water-cold {
+    color: var(--primary);
+}
+
+/* Kolejka */
+.queue-section {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.section-title {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #64748b;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+}
+
+.queue-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.queue-item {
+    padding: 6px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9rem;
+}
+
+.queue-item:last-child {
+    border-bottom: none;
+}
+
+.queue-item:first-child {
+    background-color: #e0f2fe;
+    font-weight: 600;
+    border-radius: 4px;
+}
+
+/* Collapsible Sections (Opinie, Rezerwacje) */
+details {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #fff;
+}
+
+details summary {
+    padding: 10px;
+    background-color: #f8fafc;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9rem;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+details summary::after {
+    content: '+';
+    font-size: 1.2rem;
+}
+
+details[open] summary::after {
+    content: '-';
+}
+
+.details-content {
+    padding: 10px;
+    background-color: white;
+    border-top: 1px solid var(--border);
+}
+
+/* Formularze wewnątrz details */
+.mini-form {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.mini-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.mini-item {
+    font-size: 0.85rem;
+    padding: 5px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: space-between;
+}
+
+.review-text {
+    font-style: italic;
+    color: #555;
+}
+
+/* Inputy i Przyciski */
+input[type="text"],
+input[type="time"] {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+button {
+    cursor: pointer;
+    border: none;
+    border-radius: 4px;
+    transition: 0.2s;
+}
+
+.btn-small {
+    padding: 5px 10px;
+    font-size: 0.8rem;
+}
+
+.btn-add {
+    background-color: var(--primary);
+    color: white;
+    font-weight: bold;
+}
+
+.btn-del {
+    background-color: #ef4444;
+    color: white;
+    padding: 2px 6px;
+    font-size: 0.7rem;
+    margin-left: 5px;
+}
+
+.action-area {
+    margin-top: 10px;
+}
+
+.btn-main {
+    width: 100%;
+    padding: 12px;
+    font-size: 1rem;
+    color: white;
+    font-weight: bold;
+    border-radius: 6px;
+}
+
+.btn-enter {
+    background-color: var(--primary);
+}
+
+.btn-leave {
+    background-color: var(--danger);
+}
