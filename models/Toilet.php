@@ -1,6 +1,6 @@
 <?php
 /**
- * Model Toilet - MySQL
+ * Model Toilet - MySQL (naprawiony)
  */
 
 require_once __DIR__ . '/../config/config.php';
@@ -36,22 +36,32 @@ class Toilet
         // Pobierz kolejki
         $stmt = $db->query("SELECT * FROM queue ORDER BY toilet_id, position");
         foreach ($stmt->fetchAll() as $row) {
-            $toilets[$row['toilet_id']]['queue'][] = $row['person_name'];
+            if (isset($toilets[$row['toilet_id']])) {
+                $toilets[$row['toilet_id']]['queue'][] = $row['person_name'];
+            }
         }
 
         // Pobierz opinie
-        $stmt = $db->query("SELECT * FROM reviews ORDER BY toilet_id, id DESC");
+        $stmt = $db->query("SELECT * FROM reviews ORDER BY toilet_id, id DESC LIMIT 50");
         foreach ($stmt->fetchAll() as $row) {
-            $toilets[$row['toilet_id']]['reviews'][] = $row['review_text'];
+            if (isset($toilets[$row['toilet_id']])) {
+                $toilets[$row['toilet_id']]['reviews'][] = [
+                    'text' => $row['review_text'],
+                    'author' => $row['author'] ?? ''
+                ];
+            }
         }
 
         // Pobierz rezerwacje
-        $stmt = $db->query("SELECT * FROM reservations ORDER BY toilet_id, reservation_time");
+        $stmt = $db->query("SELECT * FROM reservations ORDER BY toilet_id, reservation_date, reservation_time");
         foreach ($stmt->fetchAll() as $row) {
-            $toilets[$row['toilet_id']]['reservations'][] = [
-                'time' => $row['reservation_time'],
-                'name' => $row['person_name']
-            ];
+            if (isset($toilets[$row['toilet_id']])) {
+                $toilets[$row['toilet_id']]['reservations'][] = [
+                    'date' => $row['reservation_date'],
+                    'time' => $row['reservation_time'],
+                    'name' => $row['person_name']
+                ];
+            }
         }
 
         return $toilets;
@@ -78,7 +88,6 @@ class Toilet
     {
         $db = getDB();
 
-        // Znajdź osobę na pozycji
         $stmt = $db->prepare("SELECT id FROM queue WHERE toilet_id = ? ORDER BY position LIMIT 1 OFFSET ?");
         $stmt->execute([$toiletId, $index]);
         $row = $stmt->fetch();
@@ -86,7 +95,6 @@ class Toilet
         if ($row) {
             $stmt = $db->prepare("DELETE FROM queue WHERE id = ?");
             $stmt->execute([$row['id']]);
-            // Przenumeruj
             self::reorderQueue($toiletId);
             return true;
         }
@@ -113,7 +121,6 @@ class Toilet
     {
         $db = getDB();
 
-        // Pobierz pierwszą osobę z kolejki
         $stmt = $db->prepare("SELECT id, person_name FROM queue WHERE toilet_id = ? ORDER BY position LIMIT 1");
         $stmt->execute([$toiletId]);
         $first = $stmt->fetch();
@@ -121,11 +128,9 @@ class Toilet
         if (!$first)
             return false;
 
-        // Ustaw jako zajęte
         $stmt = $db->prepare("UPDATE toilets SET occupied_by = ?, entry_time = NOW() WHERE toilet_id = ?");
         $stmt->execute([$first['person_name'], $toiletId]);
 
-        // Usuń z kolejki
         $stmt = $db->prepare("DELETE FROM queue WHERE id = ?");
         $stmt->execute([$first['id']]);
 
@@ -156,19 +161,24 @@ class Toilet
     /**
      * Dodaje opinię
      */
-    public static function addReview(string $toiletId, string $review): bool
+    public static function addReview(string $toiletId, string $review, string $author = ''): bool
     {
         $db = getDB();
+        $stmt = $db->prepare("INSERT INTO reviews (toilet_id, review_text, author) VALUES (?, ?, ?)");
+        $result = $stmt->execute([$toiletId, $review, $author]);
 
-        // Dodaj nową
-        $stmt = $db->prepare("INSERT INTO reviews (toilet_id, review_text) VALUES (?, ?)");
-        $stmt->execute([$toiletId, $review]);
-
-        // Usuń stare (zostaw max 5)
-        $stmt = $db->prepare("DELETE FROM reviews WHERE toilet_id = ? AND id NOT IN (SELECT id FROM (SELECT id FROM reviews WHERE toilet_id = ? ORDER BY id DESC LIMIT 5) t)");
+        // Zostaw max 5 opinii na toaletę
+        $stmt = $db->prepare("
+            DELETE FROM reviews 
+            WHERE toilet_id = ? AND id NOT IN (
+                SELECT id FROM (
+                    SELECT id FROM reviews WHERE toilet_id = ? ORDER BY id DESC LIMIT 5
+                ) t
+            )
+        ");
         $stmt->execute([$toiletId, $toiletId]);
 
-        return true;
+        return $result;
     }
 
     /**
@@ -189,13 +199,13 @@ class Toilet
     }
 
     /**
-     * Dodaje rezerwację
+     * Dodaje rezerwację z datą i godziną
      */
-    public static function addReservation(string $toiletId, string $time, string $name): bool
+    public static function addReservation(string $toiletId, string $date, string $time, string $name): bool
     {
         $db = getDB();
-        $stmt = $db->prepare("INSERT INTO reservations (toilet_id, reservation_time, person_name) VALUES (?, ?, ?)");
-        return $stmt->execute([$toiletId, $time, $name]);
+        $stmt = $db->prepare("INSERT INTO reservations (toilet_id, reservation_date, reservation_time, person_name) VALUES (?, ?, ?, ?)");
+        return $stmt->execute([$toiletId, $date, $time, $name]);
     }
 
     /**
@@ -204,7 +214,7 @@ class Toilet
     public static function removeReservation(string $toiletId, int $index): bool
     {
         $db = getDB();
-        $stmt = $db->prepare("SELECT id FROM reservations WHERE toilet_id = ? ORDER BY reservation_time LIMIT 1 OFFSET ?");
+        $stmt = $db->prepare("SELECT id FROM reservations WHERE toilet_id = ? ORDER BY reservation_date, reservation_time LIMIT 1 OFFSET ?");
         $stmt->execute([$toiletId, $index]);
         $row = $stmt->fetch();
 

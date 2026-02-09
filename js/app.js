@@ -1,5 +1,5 @@
 /**
- * 🚽 EKIBEL - Live Edition z kontrolą uprawnień
+ * 🚽 EKIBEL - Naprawiona wersja
  */
 
 let toilets = {};
@@ -70,6 +70,8 @@ async function api(action, data = {}) {
             toilets = result.data;
             renderAll();
             updateStats();
+        } else if (result.message) {
+            showToast('❌ ' + result.message);
         }
         return result;
     } catch (error) {
@@ -103,21 +105,19 @@ function updateStats() {
     document.getElementById('stat-queue').textContent = queue;
 }
 
-// ===== ACTIONS (z kontrolą uprawnień) =====
+// ===== ACTIONS =====
 function quickAdd(id) {
     if (!currentUser) {
         showToast('❌ Najpierw wybierz swoje imię!');
         return;
     }
 
-    // Sprawdź czy już jesteś w kolejce
     const data = toilets[id];
     if (data && data.queue.includes(currentUser)) {
         showToast('⚠️ Już jesteś w tej kolejce!');
         return;
     }
 
-    // Sprawdź czy jesteś już w jakiejś toalecie
     for (const t of Object.values(toilets)) {
         if (t.occupiedBy === currentUser) {
             showToast('⚠️ Najpierw wyjdź z toalety!');
@@ -130,7 +130,6 @@ function quickAdd(id) {
 }
 
 function removeFromQueue(id, index) {
-    // Tylko siebie można usunąć
     const data = toilets[id];
     if (data && data.queue[index] === currentUser) {
         api('removeFromQueue', { id, index });
@@ -141,7 +140,6 @@ function removeFromQueue(id, index) {
 
 function enterToilet(id) {
     const data = toilets[id];
-    // Tylko pierwsza osoba w kolejce może wejść
     if (data && data.queue[0] === currentUser) {
         api('enter', { id });
         showToast('🚪 Wchodzisz...');
@@ -152,7 +150,6 @@ function enterToilet(id) {
 
 function leaveToilet(id) {
     const data = toilets[id];
-    // Tylko osoba w toalecie może wyjść
     if (data && data.occupiedBy === currentUser) {
         api('leave', { id });
         showToast('👋 Do zobaczenia!');
@@ -161,27 +158,61 @@ function leaveToilet(id) {
     }
 }
 
-function toggleWater(id) { api('toggleWater', { id }); }
-
-function addReview(id) {
-    const input = document.getElementById(`rev-input-${id}`);
-    const review = input.value.trim();
-    if (review) { api('addReview', { id, review }); input.value = ''; }
-}
-
-function removeReview(id, index) { api('removeReview', { id, index }); }
-
-function addReservation(id) {
-    const timeInput = document.getElementById(`res-time-${id}`);
-    const nameInput = document.getElementById(`res-name-${id}`);
-    if (timeInput.value && nameInput.value.trim()) {
-        api('addReservation', { id, time: timeInput.value, name: nameInput.value.trim() });
-        timeInput.value = '';
-        nameInput.value = '';
+// Woda - tylko gdy jesteś w toalecie
+function toggleWater(id) {
+    const data = toilets[id];
+    if (data && data.occupiedBy === currentUser) {
+        api('toggleWater', { id });
+    } else {
+        showToast('❌ Tylko osoba w toalecie może zmieniać wodę!');
     }
 }
 
-function removeReservation(id, index) { api('removeReservation', { id, index }); }
+// OPINIE
+function addReview(id) {
+    const input = document.getElementById(`rev-input-${id}`);
+    const review = input.value.trim();
+    if (review) {
+        api('addReview', { id, review, author: currentUser || 'Anonim' });
+        input.value = '';
+        showToast('✅ Opinia dodana');
+    } else {
+        showToast('❌ Wpisz treść opinii!');
+    }
+}
+
+function removeReview(id, index) {
+    api('removeReview', { id, index });
+}
+
+// REZERWACJE
+function addReservation(id) {
+    const dateInput = document.getElementById(`res-date-${id}`);
+    const timeInput = document.getElementById(`res-time-${id}`);
+
+    if (!dateInput.value) {
+        showToast('❌ Wybierz datę!');
+        return;
+    }
+    if (!timeInput.value) {
+        showToast('❌ Wybierz godzinę!');
+        return;
+    }
+
+    api('addReservation', {
+        id,
+        date: dateInput.value,
+        time: timeInput.value,
+        name: currentUser || 'Anonim'
+    });
+    dateInput.value = '';
+    timeInput.value = '';
+    showToast('✅ Rezerwacja dodana');
+}
+
+function removeReservation(id, index) {
+    api('removeReservation', { id, index });
+}
 
 // ===== TIMER =====
 function startGlobalTimer() {
@@ -224,6 +255,17 @@ function initMusicPlayer() {
     audio.volume = 0.3;
 }
 
+// ===== HELPERS =====
+function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    const days = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb'];
+    return `${days[d.getDay()]} ${d.getDate()}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+}
+
+function getTodayDate() {
+    return new Date().toISOString().split('T')[0];
+}
+
 // ===== RENDERING =====
 function renderAll() {
     const app = document.getElementById('app');
@@ -235,7 +277,7 @@ function renderAll() {
         const imInQueue = data.queue.includes(currentUser);
         const imFirst = data.queue[0] === currentUser;
 
-        // Kolejka - przycisk X tylko przy swoim imieniu
+        // Kolejka
         let queueHtml = data.queue.length === 0
             ? '<li class="empty-msg">Kolejka pusta</li>'
             : '';
@@ -251,22 +293,26 @@ function renderAll() {
         // Główny przycisk
         let mainBtn = '';
         if (isOccupied && isMe) {
-            // Jestem w toalecie - mogę wyjść
             mainBtn = `<button class="btn-main btn-leave" onclick="leaveToilet('${id}')">🚪 Wychodzę</button>`;
         } else if (isOccupied) {
-            // Ktoś inny jest w toalecie
             mainBtn = `<div class="info-msg">🔒 Zajęte przez ${escapeHtml(data.occupiedBy)}</div>`;
         } else if (imFirst) {
-            // Jestem pierwszy w kolejce - mogę wejść
             mainBtn = `<button class="btn-main btn-enter" onclick="enterToilet('${id}')">✨ Wchodzę</button>`;
         } else if (imInQueue) {
-            // Jestem w kolejce, ale nie pierwszy
             const myPos = data.queue.indexOf(currentUser) + 1;
             mainBtn = `<div class="info-msg">⏳ Jesteś ${myPos}. w kolejce</div>`;
         } else {
-            // Nie jestem w kolejce - mogę się dopisać
             mainBtn = `<button class="btn-main btn-quick" onclick="quickAdd('${id}')">⚡ Dopisz mnie</button>`;
         }
+
+        // Woda - toggle tylko dla osoby w toalecie
+        const waterHtml = isMe
+            ? `<div class="water-toggle ${data.warmWater ? 'water-hot' : 'water-cold'}" onclick="toggleWater('${id}')">
+                ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'} <small>(kliknij)</small>
+               </div>`
+            : `<div class="water-info ${data.warmWater ? 'water-hot' : 'water-cold'}">
+                ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}
+               </div>`;
 
         const cardHtml = `
         <div class="toilet-card${isMe ? ' my-toilet' : ''}">
@@ -277,9 +323,7 @@ function renderAll() {
                 </div>
 
                 <div class="info-row">
-                    <div class="water-toggle ${data.warmWater ? 'water-hot' : 'water-cold'}" onclick="toggleWater('${id}')">
-                        ${data.warmWater ? '🔥 Ciepła' : '❄️ Zimna'}
-                    </div>
+                    ${waterHtml}
                     <div>
                         ${isOccupied
                 ? `👤 <b>${escapeHtml(data.occupiedBy)}</b>${isMe ? ' (Ty)' : ''} <span class="timer-display" id="timer-${id}">0:00</span>`
@@ -295,11 +339,11 @@ function renderAll() {
                 <div class="action-area">${mainBtn}</div>
 
                 <details>
-                    <summary>📅 Rezerwacje</summary>
+                    <summary>📅 Rezerwacje (${data.reservations.length})</summary>
                     <div class="details-content">
                         <div class="mini-form">
+                            <input type="date" id="res-date-${id}" min="${getTodayDate()}">
                             <input type="time" id="res-time-${id}">
-                            <input type="text" id="res-name-${id}" placeholder="Kto?">
                             <button class="btn-add btn-small" onclick="addReservation('${id}')">OK</button>
                         </div>
                         <ul class="mini-list">${renderReservations(data.reservations, id)}</ul>
@@ -307,11 +351,11 @@ function renderAll() {
                 </details>
 
                 <details>
-                    <summary>⭐ Opinie</summary>
+                    <summary>⭐ Opinie (${data.reviews.length})</summary>
                     <div class="details-content">
                         <ul class="mini-list">${renderReviews(data.reviews, id)}</ul>
                         <div class="mini-form">
-                            <input type="text" id="rev-input-${id}" placeholder="Zgłoś problem..." onkeypress="if(event.key==='Enter') addReview('${id}')">
+                            <input type="text" id="rev-input-${id}" placeholder="Zgłoś problem...">
                             <button class="btn-add btn-small" onclick="addReview('${id}')">OK</button>
                         </div>
                     </div>
@@ -323,20 +367,27 @@ function renderAll() {
 }
 
 function renderReservations(reservations, id) {
-    if (!reservations || reservations.length === 0) return '<li class="empty-msg">Brak</li>';
-    return reservations.map((r, i) => `
-        <li class="mini-item">
-            <span>🕐 <b>${r.time}</b> — ${escapeHtml(r.name)}</span>
-            ${r.name === currentUser ? `<button class="btn-del" onclick="removeReservation('${id}', ${i})">✕</button>` : ''}
-        </li>
-    `).join('');
+    if (!reservations || reservations.length === 0) return '<li class="empty-msg">Brak rezerwacji</li>';
+    return reservations.map((r, i) => {
+        const canRemove = r.name === currentUser;
+        return `
+        <li class="mini-item${canRemove ? ' me' : ''}">
+            <span>📅 <b>${formatDate(r.date)}</b> ${r.time} — ${escapeHtml(r.name)}</span>
+            ${canRemove ? `<button class="btn-del" onclick="removeReservation('${id}', ${i})">✕</button>` : ''}
+        </li>`;
+    }).join('');
 }
 
 function renderReviews(reviews, id) {
-    if (!reviews || reviews.length === 0) return '<li class="empty-msg">Brak</li>';
-    return reviews.map((r, i) => `
-        <li class="mini-item"><span>"${escapeHtml(r)}"</span></li>
-    `).join('');
+    if (!reviews || reviews.length === 0) return '<li class="empty-msg">Brak opinii</li>';
+    return reviews.map((r, i) => {
+        const canRemove = r.author === currentUser;
+        return `
+        <li class="mini-item${canRemove ? ' me' : ''}">
+            <span>"${escapeHtml(r.text)}" <small>— ${escapeHtml(r.author || 'Anonim')}</small></span>
+            ${canRemove ? `<button class="btn-del" onclick="removeReview('${id}', ${i})">✕</button>` : ''}
+        </li>`;
+    }).join('');
 }
 
 function escapeHtml(text) {

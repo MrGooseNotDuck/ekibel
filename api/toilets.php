@@ -1,7 +1,6 @@
 <?php
 /**
  * API Endpoint dla toalet
- * Obsługuje wszystkie akcje AJAX
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -25,7 +24,7 @@ try {
                 Toilet::addToQueue($id, $name);
                 $response = ['success' => true, 'data' => Toilet::loadAll()];
             } else {
-                $response = ['success' => false, 'message' => 'Brak wymaganych danych'];
+                $response = ['success' => false, 'message' => 'Brak danych'];
             }
             break;
 
@@ -60,9 +59,12 @@ try {
 
         case 'addReview':
             $review = trim($_POST['review'] ?? '');
+            $author = trim($_POST['author'] ?? '');
             if ($id && $review) {
-                Toilet::addReview($id, $review);
+                Toilet::addReview($id, $review, $author);
                 $response = ['success' => true, 'data' => Toilet::loadAll()];
+            } else {
+                $response = ['success' => false, 'message' => 'Brak treści opinii'];
             }
             break;
 
@@ -75,11 +77,14 @@ try {
             break;
 
         case 'addReservation':
+            $date = $_POST['date'] ?? '';
             $time = $_POST['time'] ?? '';
             $name = trim($_POST['name'] ?? '');
-            if ($id && $time && $name) {
-                Toilet::addReservation($id, $time, $name);
+            if ($id && $date && $time && $name) {
+                Toilet::addReservation($id, $date, $time, $name);
                 $response = ['success' => true, 'data' => Toilet::loadAll()];
+            } else {
+                $response = ['success' => false, 'message' => 'Brak danych rezerwacji'];
             }
             break;
 

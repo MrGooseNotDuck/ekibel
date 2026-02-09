@@ -271,6 +271,12 @@ h1 {
     transition: all 0.2s;
 }
 
+.water-info {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 500;
+}
+
 .water-hot {
     background: rgba(239, 68, 68, 0.2);
     color: #fca5a5;
@@ -279,6 +285,11 @@ h1 {
 .water-cold {
     background: rgba(59, 130, 246, 0.2);
     color: #93c5fd;
+}
+
+.mini-item.me {
+    background: rgba(16, 185, 129, 0.15);
+    border-radius: 6px;
 }
 
 .timer-display {
