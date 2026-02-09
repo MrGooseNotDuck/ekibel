@@ -1,5 +1,5 @@
 /**
- * 🚽 EKIBEL - Z przyciskiem powiadomień
+ * 🚽 EKIBEL - Z alternatywnymi powiadomieniami dla Safari
  */
 
 let toilets = {};
@@ -7,16 +7,72 @@ let currentUser = null;
 let previousState = null;
 let swRegistration = null;
 let notificationsEnabled = false;
+let alertSound = null;
+
+// ===== ALTERNATIVE NOTIFICATIONS (Safari/iOS) =====
+function initAlertSound() {
+    // Krótki dźwięk alertu
+    alertSound = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleBoAHIjeli4dBid9sOW5azMsVIy32bN5OBAfYKnpxH1FHRJLhcjWuYJOFAM1c7/lp3sqDwpAnM/bm2wnDABRqujJfiMIADiKzseoawsHJ3W/5KhxIAcGPpbZyogyAwEjf73bm1sQABRusMSZXBwCDmmx0qVrDQAOZKvMomUfBhFnrsmibxEADxFmrcaecRsCD2GnvpRqHQMSZ6jAloYeCgBfocKZeisLAFylx5d4');
+    alertSound.volume = 0.5;
+}
+
+function playAlertSound() {
+    if (alertSound && notificationsEnabled) {
+        alertSound.currentTime = 0;
+        alertSound.play().catch(() => { });
+    }
+}
+
+// Wibracja (działa na niektórych urządzeniach mobilnych)
+function vibrate() {
+    if ('vibrate' in navigator && notificationsEnabled) {
+        navigator.vibrate([200, 100, 200]);
+    }
+}
+
+// Baner powiadomienia w aplikacji
+function showInAppNotification(title, body, type = 'info') {
+    // Usuń stary baner
+    const existing = document.querySelector('.in-app-notification');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.className = `in-app-notification ${type}`;
+    banner.innerHTML = `
+        <div class="notif-content">
+            <strong>${title}</strong>
+            <span>${body}</span>
+        </div>
+        <button onclick="this.parentElement.remove()">✕</button>
+    `;
+    document.body.appendChild(banner);
+
+    // Dźwięk i wibracja
+    playAlertSound();
+    vibrate();
+
+    // Zmień tytuł strony
+    const originalTitle = document.title;
+    document.title = `🔔 ${title}`;
+
+    // Auto-ukryj po 8 sekundach
+    setTimeout(() => {
+        banner.classList.add('hiding');
+        setTimeout(() => {
+            banner.remove();
+            document.title = originalTitle;
+        }, 300);
+    }, 8000);
+}
 
 // ===== SERVICE WORKER =====
 async function initServiceWorker() {
     if ('serviceWorker' in navigator) {
         try {
             swRegistration = await navigator.serviceWorker.register('/sw.js');
-            console.log('✅ Service Worker OK');
             return true;
         } catch (error) {
-            console.error('❌ SW błąd:', error);
+            console.log('SW:', error);
             return false;
         }
     }
@@ -24,10 +80,14 @@ async function initServiceWorker() {
 }
 
 // ===== NOTIFICATIONS =====
+function supportsNativeNotifications() {
+    return 'Notification' in window && Notification.permission !== 'denied';
+}
+
 async function requestNotificationPermission() {
     if (!('Notification' in window)) {
-        showToast('❌ Przeglądarka nie wspiera powiadomień');
-        return false;
+        // Safari/iOS - użyj alternatywnych powiadomień
+        return true; // Zawsze "granted" bo używamy in-app notifications
     }
 
     if (Notification.permission === 'granted') {
@@ -35,32 +95,27 @@ async function requestNotificationPermission() {
     }
 
     if (Notification.permission === 'denied') {
-        showToast('⚠️ Powiadomienia zablokowane. Włącz w ustawieniach przeglądarki.');
-        return false;
+        showToast('⚠️ Użyję powiadomień w aplikacji');
+        return true; // Fallback do in-app
     }
 
-    // Poproś o uprawnienia
     const permission = await Notification.requestPermission();
-    return permission === 'granted';
+    return true; // Zawsze true bo mamy fallback
 }
 
 async function toggleNotifications() {
     if (notificationsEnabled) {
-        // Wyłącz
         notificationsEnabled = false;
         localStorage.setItem('ekibel_notifications', 'false');
         showToast('🔕 Powiadomienia wyłączone');
     } else {
-        // Włącz - najpierw poproś o uprawnienia
-        const granted = await requestNotificationPermission();
-        if (granted) {
-            notificationsEnabled = true;
-            localStorage.setItem('ekibel_notifications', 'true');
-            showToast('🔔 Powiadomienia włączone!');
+        await requestNotificationPermission();
+        notificationsEnabled = true;
+        localStorage.setItem('ekibel_notifications', 'true');
+        showToast('🔔 Powiadomienia włączone!');
 
-            // Testowe powiadomienie
-            sendNotification('✅ Powiadomienia aktywne!', 'Otrzymasz powiadomienie gdy nadejdzie Twoja kolej.', '🔔');
-        }
+        // Testowe powiadomienie
+        sendNotification('✅ Powiadomienia aktywne!', 'Otrzymasz alert gdy nadejdzie Twoja kolej.', 'success');
     }
     updateNotificationButton();
 }
@@ -68,7 +123,7 @@ async function toggleNotifications() {
 function updateNotificationButton() {
     const btn = document.getElementById('notif-btn');
     if (btn) {
-        if (notificationsEnabled && Notification.permission === 'granted') {
+        if (notificationsEnabled) {
             btn.textContent = '🔔';
             btn.classList.add('active');
             btn.title = 'Powiadomienia włączone';
@@ -80,36 +135,31 @@ function updateNotificationButton() {
     }
 }
 
-function sendNotification(title, body, icon = '🚽') {
+function sendNotification(title, body, type = 'info') {
     if (!notificationsEnabled) return;
-    if (Notification.permission !== 'granted') return;
 
-    // Przez Service Worker (mobile)
-    if (swRegistration && swRegistration.active) {
-        swRegistration.active.postMessage({
-            type: 'SHOW_NOTIFICATION',
-            title: title,
-            body: body,
-            icon: icon
-        });
-        return;
-    }
-
-    // Fallback (desktop)
-    try {
-        new Notification(title, {
-            body: body,
-            icon: `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">${icon}</text></svg>`,
-            vibrate: [200, 100, 200],
-            tag: 'ekibel-' + Date.now()
-        });
-    } catch (e) {
-        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-            navigator.serviceWorker.ready.then(reg => {
-                reg.showNotification(title, { body, vibrate: [200, 100, 200], tag: 'ekibel' });
-            });
+    // Najpierw próbuj natywne powiadomienia
+    if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+            if (swRegistration && swRegistration.active) {
+                swRegistration.active.postMessage({
+                    type: 'SHOW_NOTIFICATION',
+                    title: title,
+                    body: body
+                });
+            } else {
+                new Notification(title, { body, vibrate: [200, 100, 200] });
+            }
+            // Również pokaż in-app dla pewności
+            showInAppNotification(title, body, type);
+            return;
+        } catch (e) {
+            // Fallback
         }
     }
+
+    // Fallback - powiadomienia w aplikacji
+    showInAppNotification(title, body, type);
 }
 
 function checkForChanges(newData) {
@@ -129,14 +179,14 @@ function checkForChanges(newData) {
 
         if (wasInQueue && isInQueue) {
             if (prevPos > 0 && newPos === 0) {
-                sendNotification('🎉 Twoja kolej!', `${data.name} - Jesteś pierwszy!`, '👑');
+                sendNotification('🎉 Twoja kolej!', `${data.name} - Jesteś pierwszy!`, 'success');
             } else if (newPos < prevPos && newPos > 0) {
-                sendNotification('⬆️ Awans!', `${data.name} - Pozycja ${newPos + 1}`, '📊');
+                sendNotification('⬆️ Awans w kolejce!', `${data.name} - Pozycja ${newPos + 1}`, 'info');
             }
         }
 
         if (isInQueue && newPos === 0 && prev.occupiedBy && !data.occupiedBy) {
-            sendNotification('🚀 WOLNE!', `${data.name} - Wchodź!`, '🟢');
+            sendNotification('🚀 TOALETA WOLNA!', `${data.name} - Wchodź teraz!`, 'success');
         }
     }
 }
@@ -400,13 +450,30 @@ function escapeHtml(text) {
     return text.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
 
+// ===== SERVER NOTIFICATIONS (from cron) =====
+async function checkServerNotifications() {
+    if (!currentUser || !notificationsEnabled) return;
+
+    try {
+        const response = await fetch('api/notifications.php?action=check&user_name=' + encodeURIComponent(currentUser));
+        const result = await response.json();
+
+        if (result.success && result.notifications && result.notifications.length > 0) {
+            for (const notif of result.notifications) {
+                sendNotification(notif.title, notif.body, 'success');
+            }
+        }
+    } catch (e) {
+        // Ignore errors
+    }
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', async () => {
+    initAlertSound();
     await initServiceWorker();
 
-    // Sprawdź zapisany stan powiadomień
-    notificationsEnabled = localStorage.getItem('ekibel_notifications') === 'true'
-        && Notification.permission === 'granted';
+    notificationsEnabled = localStorage.getItem('ekibel_notifications') === 'true';
     updateNotificationButton();
 
     initUserSelection();
@@ -414,6 +481,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await api('getAll');
     previousState = JSON.parse(JSON.stringify(toilets));
 
-    setInterval(() => api('getAll'), 2000);
+    // Polling co 5 sekund (zmniejszone z 2s)
+    setInterval(() => {
+        api('getAll');
+        checkServerNotifications();
+    }, 5000);
+
     initMusicPlayer();
 });
